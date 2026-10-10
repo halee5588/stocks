@@ -951,16 +951,59 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
+        async function fetchClientWeather() {
+            try {
+                const url = 'https://api.open-meteo.com/v1/forecast?latitude=21.3069&longitude=-157.8583&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m&daily=weather_code,precipitation_sum,wind_gusts_10m_max&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=Pacific%2FHonolulu';
+                const r = await fetch(url);
+                if (!r.ok) return;
+                const d = await r.json();
+                const curr = d.current;
+                if (!curr) return;
+                
+                const wmoMap = {
+                    0: ["Clear / Sunny", "☀️"], 1: ["Mainly Clear", "🌤️"], 2: ["Partly Cloudy", "⛅"],
+                    3: ["Overcast", "☁️"], 45: ["Foggy", "🌫️"], 51: ["Light Drizzle", "🌦️"],
+                    61: ["Slight Rain", "🌦️"], 63: ["Rain", "🌧️"], 80: ["Passing Showers", "🌦️"],
+                    95: ["Thunderstorm", "⚡"]
+                };
+                const cond = wmoMap[curr.weather_code] || ["Fair", "🌤️"];
+                const deg = curr.wind_direction_10m || 0;
+                const dir = (deg>=22.5 && deg<67.5)?"NE":(deg>=67.5 && deg<112.5)?"E":(deg>=112.5 && deg<157.5)?"SE":(deg>=157.5 && deg<202.5)?"S":(deg>=202.5 && deg<247.5)?"SW":(deg>=247.5 && deg<292.5)?"W":(deg>=292.5 && deg<337.5)?"NW":"N";
+
+                document.getElementById('w-temp').textContent = `${Math.round(curr.temperature_2m)}°F`;
+                document.getElementById('w-cond').textContent = `${cond[1]} ${cond[0]}`;
+                document.getElementById('w-meta').textContent = `Winds: ${Math.round(curr.wind_speed_10m)} mph ${dir} • Humidity: ${curr.relative_humidity_2m}%`;
+
+                const daily = d.daily || {};
+                const codes = daily.weather_code || [];
+                const gusts = daily.wind_gusts_10m_max || [];
+                let isSev = false;
+                for (let c of codes) { if ([95,96,99,65,82].includes(c)) isSev = true; }
+                for (let g of gusts) { if (g >= 45) isSev = true; }
+
+                const pill = document.getElementById('clement-pill');
+                if (pill) {
+                    pill.className = 'clement-pill ' + (isSev ? 'clement-alert' : 'clement-calm');
+                    document.getElementById('clement-status').textContent = isSev ? 'Weather Notice Ahead' : 'Clement Weather: Calm';
+                    document.getElementById('clement-desc').textContent = isSev ? 'Notice: Storm systems or gale winds in forecast.' : 'No severe weather ahead. Pleasant trade winds & clear skies across Oahu for the week.';
+                }
+            } catch(e) { console.warn('Weather fallback error:', e); }
+        }
+
         async function fetchData() {
             const btn = document.querySelector('.refresh-btn');
             btn.style.opacity = '0.7';
             btn.textContent = 'Updating...';
             try {
                 const res = await fetch('/api/data');
-                const data = await res.json();
-                updateUI(data);
+                if (res.ok) {
+                    const data = await res.json();
+                    updateUI(data);
+                    return;
+                }
+                await fetchClientWeather();
             } catch (err) {
-                console.error('Fetch error:', err);
+                await fetchClientWeather();
             } finally {
                 btn.style.opacity = '1';
                 btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Refresh`;
